@@ -45,8 +45,7 @@ string BuildConnectionString()
     Username = userInfo[0],
     Password = userInfo.Length > 1 ? userInfo[1] : "",
     Database = uri.AbsolutePath.TrimStart('/'),
-    SslMode = SslMode.Prefer,
-    TrustServerCertificate = true
+    SslMode = SslMode.Prefer
   };
 
   return csBuilder.ConnectionString;
