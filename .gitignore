@@ -1,0 +1,18 @@
+# .NET build output
+bin/
+obj/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# OS
+.DS_Store
+jsons/
+deliInfo.json
