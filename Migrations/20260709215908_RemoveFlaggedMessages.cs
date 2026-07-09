@@ -12,8 +12,7 @@ namespace backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "FlaggedMessages");
+            migrationBuilder.Sql(@"DROP TABLE IF EXISTS ""FlaggedMessages"";");
         }
 
         /// <inheritdoc />
