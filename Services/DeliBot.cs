@@ -42,8 +42,12 @@ public partial class DeliBot
   {
     await EnsureDefaultRuleAsync();
 
+    bool containsProfanity = question
+    .Split(new[] { ' ', '\t', '\n', '.', ',', '!', '?' }, StringSplitOptions.RemoveEmptyEntries)
+    .Any(word => _profanityFilter.IsProfanity(word));
+
     bool isRelevant = await IsRelevantToStoreAsync(question);
-    if (!isRelevant || _profanityFilter.IsProfanity(question))
+    if (!isRelevant || containsProfanity)
     {
       return "That's outside what I can help with here — I can only answer questions about the deli/store.";
     }
