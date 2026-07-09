@@ -1,7 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Net;
-using System.Net.Mail;
 using System.Web;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,10 +12,7 @@ public class DeliBot
   private readonly HttpClient _http = new();
   private readonly string _apiKey;
 
-  private readonly string _smtpHost;
-  private readonly int _smtpPort;
-  private readonly string _smtpUser;
-  private readonly string _smtpPass;
+  private readonly string _resendApiKey;
   private readonly string _alertEmailTo;
 
   private const string DefaultRefusalRule =
@@ -30,14 +25,8 @@ public class DeliBot
     _apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
         ?? throw new Exception("GEMINI_API_KEY environment variable not set.");
 
-    _smtpHost = Environment.GetEnvironmentVariable("SMTP_HOST")
-        ?? throw new Exception("SMTP_HOST environment variable not set.");
-    _smtpPort = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT")
-        ?? throw new Exception("SMTP_PORT environment variable not set."));
-    _smtpUser = Environment.GetEnvironmentVariable("SMTP_USER")
-        ?? throw new Exception("SMTP_USER environment variable not set.");
-    _smtpPass = Environment.GetEnvironmentVariable("SMTP_PASS")
-        ?? throw new Exception("SMTP_PASS environment variable not set.");
+    _resendApiKey = Environment.GetEnvironmentVariable("RESEND_API_KEY")
+        ?? throw new Exception("RESEND_API_KEY environment variable not set.");
     _alertEmailTo = Environment.GetEnvironmentVariable("ALERT_EMAIL_TO")
         ?? throw new Exception("ALERT_EMAIL_TO environment variable not set.");
   }
@@ -70,18 +59,14 @@ public class DeliBot
     try
     {
       TimeZoneInfo cstZone = TimeZoneInfo.FindSystemTimeZoneById("Central Standard Time");
-      using var message = new MailMessage();
-      message.From = new MailAddress(_smtpUser);
-      message.To.Add(_alertEmailTo);
-      message.Subject = "Deli Assistant: message flagged";
-      message.IsBodyHtml = true;
+      string emailSubject = "Deli Assistant: message flagged";
 
       string safeMsg = HttpUtility.HtmlEncode(msg);
       string safeReason = HttpUtility.HtmlEncode(reason);
       string centralTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, cstZone).ToString("h:mmtt dddd M-d-yy");
       string utcTime = DateTime.UtcNow.ToString("o");
 
-      message.Body = $"""
+      string emailBody = $"""
         <html>
           <body style="margin:0; padding:0; background-color:#f2f2f2; font-family: Arial, Helvetica, sans-serif;">
             <table role="presentation" width="100%" style="border-collapse:collapse; padding:24px 0;">
@@ -134,13 +119,29 @@ public class DeliBot
         </html>
         """;
 
-      using var client = new SmtpClient(_smtpHost, _smtpPort)
+      var resendBody = new
       {
-        Credentials = new NetworkCredential(_smtpUser, _smtpPass),
-        EnableSsl = true
+        from = "Deli Assistant <onboarding@resend.dev>",
+        to = new[] { _alertEmailTo },
+        subject = emailSubject,
+        html = emailBody
       };
 
-      await client.SendMailAsync(message);
+      var resendContent = new StringContent(
+          JsonSerializer.Serialize(resendBody), Encoding.UTF8, "application/json");
+
+      using var resendRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.resend.com/emails")
+      {
+        Content = resendContent
+      };
+      resendRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _resendApiKey);
+
+      var resendResponse = await _http.SendAsync(resendRequest);
+      if (!resendResponse.IsSuccessStatusCode)
+      {
+        string errorBody = await resendResponse.Content.ReadAsStringAsync();
+        Console.WriteLine($"[Email alert error] Resend API returned failure: {errorBody}");
+      }
     }
     catch (Exception ex)
     {
