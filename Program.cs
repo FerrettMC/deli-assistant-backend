@@ -44,7 +44,7 @@ using (var scope = app.Services.CreateScope())
 var bot = app.Services.GetRequiredService<DeliBot>();
 await bot.EnsureDefaultRuleAsync();
 
-app.MapGet("/", () => "Hello World!");
+app.MapGet("/", () => "Why are you here? Go to deli-assistant.onrender.com to use the assistant.");
 
 app.MapSiteEndpoints();
 app.MapChatEndpoints();
