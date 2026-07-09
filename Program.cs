@@ -17,7 +17,6 @@ builder.Services.AddDbContextFactory<DeliDbContext>(options =>
     options.UseNpgsql(config.BuildConnectionString()));
 
 builder.Services.AddSingleton<TokenService>();
-builder.Services.AddSingleton<EmailAlertService>();
 builder.Services.AddSingleton<DeliBot>();
 
 builder.Services.AddCors(options =>

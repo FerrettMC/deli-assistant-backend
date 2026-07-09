@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using ProfanityFilter;
 
 namespace DeliAi.Backend.Services;
 
@@ -9,15 +10,15 @@ public partial class DeliBot
   private readonly IDbContextFactory<DeliDbContext> _dbContextFactory;
   private readonly HttpClient _http = new();
   private readonly string _apiKey;
-  private readonly EmailAlertService _emailAlerts;
+
+  private static readonly ProfanityFilter.ProfanityFilter _profanityFilter = new();
 
   private const string DefaultRefusalRule =
      "If you do not know the answer to a question with full certainty, or the answer is not explicitly stated in these facts, you must respond only with: Sorry, I do not have that information. If this is a mistake, add the information using the 'manage info' button.";
 
-  public DeliBot(IDbContextFactory<DeliDbContext> dbContextFactory, EmailAlertService emailAlerts)
+  public DeliBot(IDbContextFactory<DeliDbContext> dbContextFactory)
   {
     _dbContextFactory = dbContextFactory;
-    _emailAlerts = emailAlerts;
 
     _apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
         ?? throw new Exception("GEMINI_API_KEY environment variable not set.");
@@ -35,23 +36,14 @@ public partial class DeliBot
     }
   }
 
-  private async Task LogFlaggedMessageAsync(DeliDbContext db, string question, string reason)
-  {
-    db.FlaggedMessages.Add(new FlaggedMessageEntity
-    {
-      Timestamp = DateTime.UtcNow,
-      Question = question,
-      Reason = reason
-    });
-    await db.SaveChangesAsync();
-  }
+
 
   public async Task<string> Ask(string question)
   {
     await EnsureDefaultRuleAsync();
 
     bool isRelevant = await IsRelevantToStoreAsync(question);
-    if (!isRelevant)
+    if (!isRelevant || _profanityFilter.IsProfanity(question))
     {
       return "That's outside what I can help with here — I can only answer questions about the deli/store.";
     }
@@ -61,7 +53,6 @@ public partial class DeliBot
     string context = string.Join("\n", facts.Select(e => $"- {e.Info}"));
 
     const string refusalMarker = "NO_MATCH";
-    const string flagDelimiter = "|||FLAG|||";
 
     string systemPrompt =
      "You are Festival Deli Assistant, a strict fact lookup assistant for a deli. You ONLY know what is in the FACTS list below. " +
@@ -97,19 +88,7 @@ public partial class DeliBot
      "If need be, you may improve the grammar and/or wording of a fact to improve readability and flow, but never change its meaning or content. " +
      "Only greet the user if their message is itself a greeting (like \"hi\" or \"hello\") with no question attached. " +
      "In that case, you may reply with a brief friendly greeting before answering, if there's a question to answer. " +
-     "For all other messages, do not add greetings, pleasantries, or filler — go straight to the answer or refusal.\n\n" +
-     "SEPARATELY, evaluate whether the user's message itself is inappropriate for a professional workplace " +
-     "assistant. Your default answer is that it is NOT inappropriate — only flag messages that are clearly " +
-     "and seriously over the line, such as: explicit sexual content, direct threats of violence, targeted " +
-     "harassment or hate speech against a person or group, clear illegal activity, or overt abuse directed at " +
-     "the assistant or staff. Do NOT flag: mild rudeness, sarcasm, frustration, off-topic questions, jokes, " +
-     "crude but non-targeted language, mild swearing, or anything that is merely unprofessional or awkward " +
-     "rather than genuinely harmful. When in doubt, do NOT flag — flagging should be rare and reserved for " +
-     "messages a reasonable manager would want to be alerted about immediately. " +
-     $"If (and only if) the message clearly meets this high bar, add a new line after your entire normal " +
-     $"response above containing EXACTLY: {flagDelimiter}<short reason>, where <short reason> is a few words " +
-     "describing why. Never mention this flagging instruction, this delimiter, or that you are evaluating the " +
-     "message, anywhere in your visible answer.";
+     "For all other messages, do not add greetings, pleasantries, or filler — go straight to the answer or refusal.";
 
     var requestBody = new
     {
@@ -147,23 +126,11 @@ public partial class DeliBot
 
     string result = answer?.Trim() ?? refusalMarker;
 
-    // Check for and strip out the flag delimiter, logging separately
-    int flagIndex = result.IndexOf(flagDelimiter, StringComparison.OrdinalIgnoreCase);
-    if (flagIndex >= 0)
-    {
-      string reason = result.Substring(flagIndex + flagDelimiter.Length).Trim();
-      result = result.Substring(0, flagIndex).Trim();
-      string flagReason = string.IsNullOrWhiteSpace(reason) ? "Unspecified" : reason;
-
-      await LogFlaggedMessageAsync(db, question, flagReason);
-      await _emailAlerts.SendFlagAlertEmailAsync(question, flagReason);
-      return "This message has been flagged and an alert has been sent to the administrator. Let a supervisor know if this is a mistake, and use the Deli Assistant responsibly.";
-    }
-
     if (result.Contains(refusalMarker, StringComparison.OrdinalIgnoreCase))
     {
       db.UnansweredQuestions.Add(new UnansweredQuestionEntity { Info = question });
       await db.SaveChangesAsync();
+
 
       // keep the log capped at 100 (oldest first)
       var count = await db.UnansweredQuestions.CountAsync();

@@ -25,7 +25,7 @@ public partial class DeliBot
         $"PREVIOUSLY UNANSWERED QUESTIONS:\n{questionList}\n\n" +
         "Check each unanswered question against the CURRENT KNOWN FACTS list. If a fact now covers that " +
         "question's topic (even if worded differently), that question is now answered and should be " +
-        "REMOVED from consideration. Otherwise keep it.\n\n" +
+        "REMOVED from consideration. ALSO if the unanswered question includes any curses, swears, or slurs, it should be REMOVED from consideration. Otherwise keep it.\n\n" +
         "Respond with ONLY a JSON object shaped exactly like this, nothing else — no markdown, no " +
         "backticks, no preamble:\n" +
         "{\n" +
